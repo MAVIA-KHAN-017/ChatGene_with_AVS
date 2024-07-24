@@ -1,0 +1,81 @@
+
+CREATE PROCEDURE ReceivablesStartEndDateSearch
+
+@StartDate DATE,
+@EndDate DATE,
+@customerSearch NVARCHAR(50),
+@Invoiceid NVARCHAR(50),
+@Invoicecode NVARCHAR(50)
+AS
+BEGIN
+
+      WITH CreditNoteAmount AS (
+    SELECT 
+        TTDD.reference_invoice__Detailid,
+        TTMD.invoice_id,
+        TTMD.invoice_code,
+        TTDD.invoice_detail_id,
+        TTMD.total_amount AS CreditNoteTotal,
+        TTMD.tax_amount AS CNA_tax_amount,
+        TTMD.paid_amount AS CNA_paid_amount,
+        TTMD.net_amount AS CreditNoteTotalAmount
+    FROM
+        Trade_Transaction_Master_D TTMD
+    INNER JOIN
+        Trade_Transaction_Detail_D TTDD ON TTMD.invoice_id = TTDD.invoice_id  
+    WHERE 
+        TTMD.invoice_code LIKE 'CN-%' 
+)
+
+SELECT
+    DISTINCT (TTMD.invoice_id), 
+    TTMD.vendor_id,
+    TVM.description,
+    TTMD.invoice_code,
+    gc.description AS currency,
+    
+--    TTMD.total_amount AS B_CN_amount,
+--	COALESCE(CNA.CreditNoteTotal, 0) AS CreditNoteTotal,
+    TTMD.total_amount - COALESCE(CNA.CreditNoteTotal, 0) AS total_amount,
+    
+--    TTMD.tax_amount AS B_CN_total_tax,
+--    COALESCE(CNA.CNA_tax_amount, 0) AS CNA_tax_amount,
+    TTMD.tax_amount - COALESCE(CNA.CNA_tax_amount,0) AS tax_amount,
+    
+    
+    
+--    TTMD.net_amount AS B_CN_net_amount,
+--    COALESCE(CNA.CreditNoteTotalAmount, 0) AS CreditNoteTotalAmount,
+    TTMD.net_amount - COALESCE(CNA.CreditNoteTotalAmount,0) AS total_net_amount,
+   
+    COALESCE(TTMD.paid_amount - COALESCE(CNA.CNA_paid_amount, 0), 0) AS total_paid_amount,
+  (TTMD.net_amount - COALESCE(CNA.CreditNoteTotalAmount, 0)) - COALESCE(TTMD.paid_amount - COALESCE(CNA.CNA_paid_amount, 0), 0) AS total_receivables_amount,   
+CAST(TTMD.invoice_date AS DATE) AS invoice_date 
+FROM
+    Trade_Transaction_Master_D TTMD
+INNER JOIN
+    Trade_Transaction_Detail_D TTDD ON TTMD.invoice_id = TTDD.invoice_id
+INNER JOIN
+    Trade_Vendor_Master TVM ON TTMD.vendor_id = TVM.vendor_id
+INNER JOIN
+    Trade_Product_Master TPM ON TTDD.product_id = TPM.product_id
+INNER JOIN
+    Accounts_Segment AS as2 ON TTDD.segment_id = as2.segment_id
+INNER JOIN
+    GEN_Currency gc ON TTMD.currency_id = gc.currency_id
+LEFT JOIN 
+    CreditNoteAmount CNA ON TTDD.invoice_detail_id = CNA.reference_invoice__Detailid
+WHERE 
+    TTMD.active = 1
+     AND (@StartDate = '' OR TTMD.invoice_date BETWEEN @StartDate AND DATEADD(DAY, 1, @EndDate)) 
+    AND TTMD.invoice_code LIKE 'SI-%'
+    AND (TVM.description LIKE '%' + @customerSearch + '%' OR @customerSearch = '')
+    AND (TTMD.invoice_code LIKE '%' + @Invoicecode + '%' OR @Invoicecode = '') 
+    AND (TTMD.invoice_id LIKE '%' + @Invoiceid + '%' OR @Invoiceid = '');
+ 
+END
+
+EXEC ReceivablesStartEndDateSearch @StartDate='2014-01-01', @EndDate='2024-06-01',@customerSearch='',@Invoiceid='12800000010577',@Invoicecode=''
+ 
+DROP Procedure ReceivablesStartEndDateSearch   
+    
